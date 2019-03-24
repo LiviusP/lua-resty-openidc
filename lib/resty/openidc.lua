@@ -1014,11 +1014,12 @@ local function decode_and_parse_userinfo(opts, response)
  end
 
 -- make a call to the userinfo endpoint
-function openidc.call_userinfo_endpoint(opts, access_token)
+function openidc.call_userinfo_endpoint(opts, access_token, discover_agent)
   
+  discover_agent = discover_agent or false
   userinfo_endpoint = opts.discovery.userinfo_endpoint
 
-  if opts.id4me then 
+  if opts.id4me and not discover_agent then 
     openidc_ensure_discovered_data(opts, true)
 	userinfo_endpoint = opts.discovery_agent.userinfo_endpoint
   end 
@@ -1047,7 +1048,7 @@ function openidc.call_userinfo_endpoint(opts, access_token)
     return nil, err
   end
   
-  if opts.id4me then
+  if opts.id4me and not discover_agent then
 	log(ERROR, "userinfo response: ", res.body)
 
 	-- parse the response from the user info endpoint
@@ -1267,7 +1268,7 @@ local function openidc_authorization_response(opts, session)
   if err then
     return nil, err, session.data.original_url, session
   end
-
+		
   local id_token, err = openidc_load_and_validate_jwt_id_token(opts, json.id_token, session);
   if err then
     return nil, err, session.data.original_url, session
@@ -1286,6 +1287,13 @@ local function openidc_authorization_response(opts, session)
     -- call the user info endpoint
     -- TODO: should this error be checked?
     local user
+	
+	if opts.id4me then
+		agent, err = openidc.call_userinfo_endpoint(opts, json.access_token, true)
+	end
+	
+	log(ERROR, cjson.encode(agent))
+	
     user, err = openidc.call_userinfo_endpoint(opts, json.access_token)
 
 
