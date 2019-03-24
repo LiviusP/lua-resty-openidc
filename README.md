@@ -9,9 +9,9 @@
 
 ### To Do's:
 
-- clean up code (remove duplicate functions) and enable both OpenID and ID4me authentication via NGINX config flag
-- Identity Agent discovery for user-info endpoint
+- Automatic discovery of Identity Agent
 - Test logout
+- Automatic discovery of Identity Authority
 
 
 
