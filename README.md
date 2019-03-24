@@ -267,7 +267,7 @@ http {
           --end
 
 			
-          -- if res.user.email and string.sub(res.user.email, -10) ~= "@blabla.com" then
+          -- if not res.user.email or string.sub(res.user.email, -10) ~= "@blabla.com" then
           --   ngx.exit(ngx.HTTP_FORBIDDEN)
           -- end
 			
