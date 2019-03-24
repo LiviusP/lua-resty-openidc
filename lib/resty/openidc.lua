@@ -589,20 +589,28 @@ local function openidc_discover(url, ssl_verify, timeout, exptime, proxy_opts, h
   return json, err
 end
 
-local function openidc_ensure_discovered_data(opts)
+local function openidc_ensure_discovered_data(opts, isuserinfo)
+
+  isuserinfo = isuserinfo or false
   local err
-  if type(opts.discovery) == "string" then
-    local discovery
+  local discovery
+   
+	
+  if isuserinfo and opts.id4me and type(opts.discovery_agent) == "string" then
+	discovery, err = openidc_discover(opts.discovery_agent, opts.ssl_verify, opts.timeout, opts.jwk_expires_in, opts.proxy_opts,
+                                      opts.http_request_decorator)
+									  
+	opts.discovery_agent = discovery	
+  elseif type(opts.discovery) == "string" then 
     discovery, err = openidc_discover(opts.discovery, opts.ssl_verify, opts.timeout, opts.jwk_expires_in, opts.proxy_opts,
                                       opts.http_request_decorator)
-    if not err then
-      opts.discovery = discovery
-    end
+    opts.discovery = discovery
   end
+	
   return err
 end
 
-local function openidc_ensure_discovered_data_agent(opts)
+local function openidc_ensure_discovered_data_agent_right(opts)
   local err
   if type(opts.discovery_agent) == "string" then
     local discovery
@@ -773,17 +781,27 @@ local function get_jwk(keys, kid)
   return nil, "RSA key with id " .. kid .. " not found"
 end
 
-local function openidc_pem_from_jwk_agent(opts, kid)
-  local err = openidc_ensure_discovered_data_agent(opts)
+local function openidc_pem_from_jwk(opts, kid, isuserinfo)
+
+  isuserinfo = isuserinfo or false
+  local err = openidc_ensure_discovered_data(opts, true)
+  local discovery
+  
   if err then
     return nil, err
   end
+  
+  discovery = opts.discovery
+  
+  if isuserinfo and opts.id4me then
+	discovery = opts.discovery_agent
+  end
 
-  if not opts.discovery_agent.jwks_uri or not (type(opts.discovery_agent.jwks_uri) == "string") or (opts.discovery_agent.jwks_uri == "") then
+  if not discovery.jwks_uri or not (type(discovery.jwks_uri) == "string") or (discovery.jwks_uri == "") then
     return nil, "opts.discovery_agent.jwks_uri is not present or not a string"
   end
 
-  local cache_id = opts.discovery_agent.jwks_uri .. '#' .. (kid or '')
+  local cache_id = discovery.jwks_uri .. '#' .. (kid or '')
   local v = openidc_cache_get("jwks", cache_id)
 
   if v then
@@ -793,7 +811,7 @@ local function openidc_pem_from_jwk_agent(opts, kid)
   local jwk, jwks
 
   for force = 0, 1 do
-    jwks, err = openidc_jwks(opts.discovery_agent.jwks_uri, force, opts.ssl_verify, opts.timeout, opts.jwk_expires_in, opts.proxy_opts,
+    jwks, err = openidc_jwks(discovery.jwks_uri, force, opts.ssl_verify, opts.timeout, opts.jwk_expires_in, opts.proxy_opts,
                              opts.http_request_decorator)
     if err then
       return nil, err
@@ -824,56 +842,6 @@ local function openidc_pem_from_jwk_agent(opts, kid)
   return pem
 end
 
-local function openidc_pem_from_jwk(opts, kid)
-  local err = openidc_ensure_discovered_data(opts)
-  if err then
-    return nil, err
-  end
-
-  if not opts.discovery.jwks_uri or not (type(opts.discovery.jwks_uri) == "string") or (opts.discovery.jwks_uri == "") then
-    return nil, "opts.discovery.jwks_uri is not present or not a string"
-  end
-
-  local cache_id = opts.discovery.jwks_uri .. '#' .. (kid or '')
-  local v = openidc_cache_get("jwks", cache_id)
-
-  if v then
-    return v
-  end
-
-  local jwk, jwks
-
-  for force = 0, 1 do
-    jwks, err = openidc_jwks(opts.discovery.jwks_uri, force, opts.ssl_verify, opts.timeout, opts.jwk_expires_in, opts.proxy_opts,
-                             opts.http_request_decorator)
-    if err then
-      return nil, err
-    end
-
-    jwk, err = get_jwk(jwks.keys, kid)
-
-    if jwk and not err then
-      break
-    end
-  end
-
-  if err then
-    return nil, err
-  end
-
-  local pem
-  -- TODO check x5c length
-  if jwk.x5c then
-    pem = openidc_pem_from_x5c(jwk.x5c)
-  elseif jwk.kty == "RSA" and jwk.n and jwk.e then
-    pem = openidc_pem_from_rsa_n_and_e(jwk.n, jwk.e)
-  else
-    return nil, "don't know how to create RSA key/cert for " .. cjson.encode(jwk)
-  end
-
-  openidc_cache_set("jwks", cache_id, pem, opts.jwk_expires_in or 24 * 60 * 60)
-  return pem
-end
 
 local function is_algorithm_supported(jwt_header)
   return jwt_header and jwt_header.alg and (jwt_header.alg == "none"
@@ -903,8 +871,11 @@ local function is_algorithm_expected(jwt_header, expected_algs)
   return false
 end
 
-local function openidc_load_jwt_and_verify_crypto(opts, jwt_string, asymmetric_secret,
-symmetric_secret, expected_algs, ...)
+
+
+local function openidc_load_jwt_and_verify_crypto(opts, jwt_string, asymmetric_secret, symmetric_secret, expected_algs, isuserinfo, ...)
+
+  isuserinfo = isuserinfo or false
   local r_jwt = require("resty.jwt")
   local enc_hdr, enc_payload, enc_sign = string.match(jwt_string, '^(.+)%.(.+)%.(.*)$')
   if enc_payload and (not enc_sign or enc_sign == "") then
@@ -919,7 +890,6 @@ symmetric_secret, expected_algs, ...)
     end -- otherwise the JWT is invalid and load_jwt produces an error
   end
   
-  log(ERROR, jwt_string)
 
   local jwt_obj = r_jwt:load_jwt(jwt_string, nil)
   if not jwt_obj.valid then
@@ -941,91 +911,17 @@ symmetric_secret, expected_algs, ...)
       if opts.secret then
         log(WARN, "using deprecated option `opts.secret` for asymmetric key; switch to `opts.public_key` instead")
       end
+	  
+	  local discovery = opts.discovery
+	  if isuserinfo then 
+		discovery = opts.discovery_agent
+	  end
+	  
       secret = asymmetric_secret or opts.secret
-      if not secret and opts.discovery then
-        log(DEBUG, "using discovery to find key")
+      if not secret and discovery then
+        log(ERROR, "using discovery to find key")
         local err
-        secret, err = openidc_pem_from_jwk(opts, jwt_obj.header.kid)
-
-        if secret == nil then
-          log(ERROR, err)
-          return nil, err
-        end
-      end
-    else
-      if opts.secret then
-        log(WARN, "using deprecated option `opts.secret` for symmetric key; switch to `opts.symmetric_key` instead")
-      end
-      secret = symmetric_secret or opts.secret
-    end
-  end
-
-  if #{ ... } == 0 then
-    -- an empty list of claim specs makes lua-resty-jwt add default
-    -- validators for the exp and nbf claims if they are
-    -- present. These validators need to know the configured slack
-    -- value
-    local jwt_validators = require("resty.jwt-validators")
-    jwt_validators.set_system_leeway(opts.iat_slack and opts.iat_slack or 120)
-  end
-
-  jwt_obj = r_jwt:verify_jwt_obj(secret, jwt_obj, ...)
-  if jwt_obj then
-    log(DEBUG, "jwt: ", cjson.encode(jwt_obj), " ,valid: ", jwt_obj.valid, ", verified: ", jwt_obj.verified)
-  end
-  if not jwt_obj.verified then
-    local reason = "jwt signature verification failed"
-    if jwt_obj.reason then
-      reason = reason .. ": " .. jwt_obj.reason
-    end
-    return jwt_obj, reason
-  end
-  return jwt_obj
-end
-
-local function openidc_load_jwt_and_verify_crypto_agent(opts, jwt_string, asymmetric_secret,
-symmetric_secret, expected_algs, ...)
-  local r_jwt = require("resty.jwt")
-  local enc_hdr, enc_payload, enc_sign = string.match(jwt_string, '^(.+)%.(.+)%.(.*)$')
-  if enc_payload and (not enc_sign or enc_sign == "") then
-    local jwt = openidc_load_jwt_none_alg(enc_hdr, enc_payload)
-    if jwt then
-      if opts.accept_none_alg then
-        log(DEBUG, "accept JWT with alg \"none\" and no signature")
-        return jwt
-      else
-        return jwt, "token uses \"none\" alg but accept_none_alg is not enabled"
-      end
-    end -- otherwise the JWT is invalid and load_jwt produces an error
-  end
-  
-  log(ERROR, jwt_string)
-
-  local jwt_obj = r_jwt:load_jwt(jwt_string, nil)
-  if not jwt_obj.valid then
-    local reason = "invalid jwt"
-    if jwt_obj.reason then
-      reason = reason .. ": " .. jwt_obj.reason
-    end
-    return nil, reason
-  end
-
-  if not is_algorithm_expected(jwt_obj.header, expected_algs) then
-    local alg = jwt_obj.header and jwt_obj.header.alg or "no algorithm at all"
-    return nil, "token is signed by unexpected algorithm \"" .. alg .. "\""
-  end
-
-  local secret
-  if is_algorithm_supported(jwt_obj.header) then
-    if uses_asymmetric_algorithm(jwt_obj.header) then
-      if opts.secret then
-        log(WARN, "using deprecated option `opts.secret` for asymmetric key; switch to `opts.public_key` instead")
-      end
-      secret = asymmetric_secret or opts.secret
-      if not secret and opts.discovery_agent then
-        log(DEBUG, "using discovery to find key")
-        local err
-        secret, err = openidc_pem_from_jwk_agent(opts, jwt_obj.header.kid)
+        secret, err = openidc_pem_from_jwk(opts, jwt_obj.header.kid, isuserinfo)
 
         if secret == nil then
           log(ERROR, err)
@@ -1067,8 +963,8 @@ end
 
 
 local function decode_jwt(opts, jwt_id_token) 
-  local jwt_obj, err = openidc_load_jwt_and_verify_crypto_agent(opts, jwt_id_token, opts.agentpubkey, opts.client_secret,
-  opts.discovery_agent.id_token_signing_alg_values_supported)
+  local jwt_obj, err = openidc_load_jwt_and_verify_crypto(opts, jwt_id_token, opts.agentpubkey, opts.client_secret,
+  opts.discovery_agent.id_token_signing_alg_values_supported, true)
   if err then
     local alg = (jwt_obj and jwt_obj.header and jwt_obj.header.alg) or ''
     local is_unsupported_signature_error = jwt_obj and not jwt_obj.verified and not is_algorithm_supported(jwt_obj.header)
@@ -1119,10 +1015,15 @@ local function decode_and_parse_userinfo(opts, response)
 
 -- make a call to the userinfo endpoint
 function openidc.call_userinfo_endpoint(opts, access_token)
-  if not opts.agent_userinfo then
-    log(ERROR, "no userinfo endpoint supplied")
+  
+  openidc_ensure_discovered_data(opts, true)
+
+  if not opts.discovery_agent.userinfo_endpoint then
+    log(DEBUG, "no userinfo endpoint supplied")
     return nil, nil
   end
+  
+  userinfo_endpoint = opts.discovery_agent.userinfo_endpoint
 
   local headers = {
     ["Authorization"] = "Bearer " .. access_token,
@@ -1133,22 +1034,28 @@ function openidc.call_userinfo_endpoint(opts, access_token)
   local httpc = http.new()
   openidc_configure_timeouts(httpc, opts.timeout)
   openidc_configure_proxy(httpc, opts.proxy_opts)
-  local res, err = httpc:request_uri(opts.agent_userinfo ,
+  local res, err = httpc:request_uri(userinfo_endpoint ,
                                      decorate_request(opts.http_request_decorator, {
     headers = headers,
     ssl_verify = (opts.ssl_verify ~= "no")
   }))
   if not res then
-    err = "accessing (" .. opts.discovery.userinfo_endpoint .. ") failed: " .. err
+    err = "accessing (" .. userinfo_endpoint .. ") failed: " .. err
     return nil, err
   end
+  
+  if opts.id4me then
+	log(ERROR, "userinfo response: ", res.body)
 
-  log(ERROR, "userinfo response: ", res.body)
-
-  -- parse the response from the user info endpoint
-  local user, err = decode_and_parse_userinfo(opts, res)
-   
-  return user, err
+	-- parse the response from the user info endpoint
+	local user, err = decode_and_parse_userinfo(opts, res)
+	
+	return user, err
+ 
+  end
+  
+  return openidc_parse_json_response(res)
+  
 end
 
 -- computes access_token expires_in value (in seconds)
