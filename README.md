@@ -80,7 +80,7 @@ If you are using [OpenResty](http://openresty.org/), the default location would 
 Visti https://id4me.org
 
 
-## Sample Configuration for ID4me Signin
+## Sample Configuration for ID4me Login
 
 Sample `nginx.conf` configuration for authenticating users against Google+ Signin, protecting a reverse-proxied path.
 
