@@ -5,12 +5,12 @@
 
 # lua-resty-openidc ID4me POC
 
-Added support for ID4me - CloudFest Hackathon 2019
+## Added support for ID4me - CloudFest Hackathon 2019
 
-**To Do's:**
+### To Do's:
 - clean up code (remove duplicate functions) and enable both OpenID and ID4me authentication via NGINX config
 - Identity Agent discovery for user-info endpoint
-- test logout
+- Test logout
 
 
 
