@@ -5,12 +5,13 @@
 
 # lua-resty-openidc ID4me POC
 
-Added support for ID4me - CloudFest Hackathon 2019
+## Added support for ID4me - CloudFest Hackathon 2019
 
-**To Do's:**
-- clean up code (remove duplicate functions) and enable both OpenID and ID4me authentication via NGINX config
+### To Do's:
+
+- clean up code (remove duplicate functions) and enable both OpenID and ID4me authentication via NGINX config flag
 - Identity Agent discovery for user-info endpoint
-- test logout
+- Test logout
 
 
 
@@ -49,7 +50,7 @@ to install two extra pure-Lua dependencies that implement session management and
 
 - [`lua-resty-http`](https://github.com/pintsized/lua-resty-http)
 - [`lua-resty-session`](https://github.com/bungle/lua-resty-session)
-- [`luat-resty-hmac`] (https://github.com/jkeys089/lua-resty-hmac)
+- [`luat-resty-hmac`](https://github.com/jkeys089/lua-resty-hmac)
 
 Typically - when running as an OpenID Connect RP or an OAuth 2.0 server that consumes JWT
 access tokens - you'll also need to install the following dependency:
@@ -79,7 +80,7 @@ If you are using [OpenResty](http://openresty.org/), the default location would 
 Visti https://id4me.org
 
 
-## Sample Configuration for ID4me Signin
+## Sample Configuration for ID4me Login
 
 Sample `nginx.conf` configuration for authenticating users against Google+ Signin, protecting a reverse-proxied path.
 
@@ -266,7 +267,7 @@ http {
           --end
 
 			
-          -- if res.user.email and string.sub(res.user.email, -10) ~= "@blabla.com" then
+          -- if not res.user.email or string.sub(res.user.email, -10) ~= "@blabla.com" then
           --   ngx.exit(ngx.HTTP_FORBIDDEN)
           -- end
 			
