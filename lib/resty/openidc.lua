@@ -1016,15 +1016,18 @@ local function decode_and_parse_userinfo(opts, response)
 -- make a call to the userinfo endpoint
 function openidc.call_userinfo_endpoint(opts, access_token)
   
-  openidc_ensure_discovered_data(opts, true)
+  userinfo_endpoint = opts.discovery.userinfo_endpoint
 
-  if not opts.discovery_agent.userinfo_endpoint then
+  if opts.id4me then 
+    openidc_ensure_discovered_data(opts, true)
+	userinfo_endpoint = opts.discovery_agent.userinfo_endpoint
+  end 
+  
+  if not userinfo_endpoint then
     log(DEBUG, "no userinfo endpoint supplied")
     return nil, nil
   end
-  
-  userinfo_endpoint = opts.discovery_agent.userinfo_endpoint
-
+ 
   local headers = {
     ["Authorization"] = "Bearer " .. access_token,
   }
