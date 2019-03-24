@@ -1,7 +1,18 @@
 [![Build Status](https://travis-ci.org/zmartzone/lua-resty-openidc.svg?branch=master)](https://travis-ci.org/zmartzone/lua-resty-openidc)
 [<img width="184" height="96" align="right" src="http://openid.net/wordpress-content/uploads/2016/04/oid-l-certification-mark-l-rgb-150dpi-90mm@2x.png" alt="OpenID Certification">](https://openid.net/certification)
+[<img width="184" height="96" align="right" src="https://id4me.org/wp-content/uploads/2019/03/cropped-ID4me_Logo_75x35_CMYK.jpg" alt="OpenID Certification">](https://id4me.org/)
 
-# lua-resty-openidc
+
+# lua-resty-openidc ID4me POC
+
+Added support for ID4me - CloudFest Hackathon 2019
+
+**To Do's:**
+- clean up code (remove duplicate functions) and enable both OpenID and ID4me authentication via NGINX config
+- Identity Agent discovery for user-info endpoint
+- test logout
+
+
 
 **lua-resty-openidc** is a library for [NGINX](http://nginx.org/) implementing the
 [OpenID Connect](http://openid.net/specs/openid-connect-core-1_0.html) **Relying Party (RP)**
@@ -38,6 +49,7 @@ to install two extra pure-Lua dependencies that implement session management and
 
 - [`lua-resty-http`](https://github.com/pintsized/lua-resty-http)
 - [`lua-resty-session`](https://github.com/bungle/lua-resty-session)
+- [`luat-resty-hmac`] (https://github.com/jkeys089/lua-resty-hmac)
 
 Typically - when running as an OpenID Connect RP or an OAuth 2.0 server that consumes JWT
 access tokens - you'll also need to install the following dependency:
@@ -64,14 +76,210 @@ If you are using [OpenResty](http://openresty.org/), the default location would 
 ## Support
 
 #### Community Support
-For generic questions, see the Wiki pages with Frequently Asked Questions at:  
-  [https://github.com/zmartzone/lua-resty-openidc/wiki](https://github.com/zmartzone/lua-resty-openidc/wiki)  
-Any questions/issues should go to issues tracker.
+Visti https://id4me.org
 
-#### Commercial Services
-For commercial Support contracts, Professional Services, Training and use-case specific support you can contact:  
-  [sales@zmartzone.eu](mailto:sales@zmartzone.eu)  
 
+## Sample Configuration for ID4me Signin
+
+Sample `nginx.conf` configuration for authenticating users against Google+ Signin, protecting a reverse-proxied path.
+
+```
+events {
+  worker_connections 128;
+}
+
+http {
+
+  lua_package_path 'C:\Users\lpirvanescu\Desktop\Hackathon\openresty-1.13.6.2-win64\lualib\?.lua;;';
+
+  resolver 8.8.8.8;
+
+  lua_ssl_trusted_certificate C:\Users\lpirvanescu\Desktop\Hackathon\google.com.crt;
+  lua_ssl_verify_depth 5;
+
+  # cache for discovery metadata documents
+  lua_shared_dict discovery 1m;
+  # cache for JWKs
+  lua_shared_dict jwks 1m;
+
+  # NB: if you have "lua_code_cache off;", use:
+  # set $session_secret abcd1234;
+  # see: https://github.com/bungle/lua-resty-session#notes-about-turning-lua-code-cache-off
+
+  server {
+    listen 8080;
+
+    location / {
+
+      access_by_lua_block {
+
+          local opts = {
+             -- the full redirect URI must be protected by this script
+             -- if the URI starts with a / the full redirect URI becomes
+             -- ngx.var.scheme.."://"..ngx.var.http_host..opts.redirect_uri
+             -- unless the scheme was overridden using opts.redirect_uri_scheme or an X-Forwarded-Proto header in the incoming request
+             redirect_uri = "http://127.0.0.1:8080/redirect_uri",
+             -- up until version 1.6.1 you'd specify
+             -- redirect_uri_path = "/redirect_uri",
+             -- and could not set the hostname
+
+			session_secret = "xxxxxxxxxxxxxxxxxxx",
+
+             -- The discovery endpoint of the OP. Enable to get the URI of all endpoints (Token, introspection, logout...)
+             discovery = "https://id.test.denic.de/.well-known/openid-configuration",
+			 discovery_agent = "https://api-beta.id4me.ionos.com/.well-known/openid-configuration",
+			 agent_userinfo = "https://api-beta.id4me.ionos.com/userinfo",
+			 
+			 -- agentpubkey = [[-----BEGIN PUBLIC KEY-----MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICC[.....]G9T93/kqA2ziATTGUCAwEAAQ==-----END PUBLIC KEY-----]],
+
+             -- Access to OP Token endpoint requires an authentication. Several authentication modes are supported:
+             --token_endpoint_auth_method = ["client_secret_basic"|"client_secret_post"|"private_key_jwt"|"client_secret_jwt"],
+             -- o If token_endpoint_auth_method is set to "client_secret_basic", "client_secret_post", or "client_secret_jwt", authentication to Token endpoint is using client_id and client_secret
+             --   For non compliant OPs to OAuth 2.0 RFC 6749 for client Authentication (cf. https://tools.ietf.org/html/rfc6749#section-2.3.1)
+             --   client_id and client_secret MUST be invariant when url encoded
+             client_id = "",
+             client_secret = "",
+             -- o If token_endpoint_auth_method is set to "private_key_jwt" authentication to Token endpoint is using client_id, client_rsa_private_key and client_rsa_private_key_id to compute a signed JWT
+             --   client_rsa_private_key is the RSA private key to be used to sign the JWT generated by lua-resty-openidc for authentication to the OP
+             --   client_rsa_private_key_id (optional) is the key id to be set in the JWT header to identify which public key the OP shall use to verify the JWT signature
+             --client_id = "<client_id>",
+             --client_rsa_private_key=[[-----BEGIN RSA PRIVATE KEY-----b2qLY2HSrv4sSpG1ifqAFlJ6H[.....]9ZkPoaILxoG3Y7H-----END RSA PRIVATE KEY-----]],
+             --client_rsa_private_key_id="test123",
+             --   Life duration expressed in seconds of the signed JWT generated by lua-resty-openidc for authentication to the OP.
+             --   (used when token_endpoint_auth_method is set to "private_key_jwt" or "client_secret_jwt" authentication). Default is 60 seconds.
+             --client_jwt_assertion_expires_in = 60,
+             -- When using https to any OP endpoints, enforcement of SSL certificate check can be mandated ("yes") or not ("no").
+             --ssl_verify = "no",
+
+             --authorization_params = { hd="zmartzone.eu" },
+             --scope = "name",
+             -- Refresh the users id_token after 900 seconds without requiring re-authentication
+             --refresh_session_interval = 900,
+             --iat_slack = 600,
+             --redirect_uri_scheme = "https",
+             --logout_path = "/logout",
+             --redirect_after_logout_uri = "/",
+             -- Where should the user be redirected after logout from the RP. This option overides any end_session_endpoint that the OP may have provided in the discovery response.
+             --redirect_after_logout_with_id_token_hint = true,
+             -- Whether the redirection after logout should include the id token as an hint (if available). This option is used only if redirect_after_logout_uri is set.
+             --post_logout_redirect_uri = "https://www.zmartzone.eu/logoutSuccessful",
+             -- Where does the RP requests that the OP redirects the user after logout. If this option is set to a relative URI, it will be relative to the OP's logout endpoint, not the RP's.
+
+             --accept_none_alg = false
+             -- if your OpenID Connect Provider doesn't sign its id tokens
+             -- (uses the "none" signature algorithm) then set this to true.
+
+             --accept_unsupported_alg = true
+             -- if you want to reject tokens signed using an algorithm
+             -- not supported by lua-resty-jwt set this to false. If
+             -- you leave it unset or set it to true, the token signature will not be
+             -- verified when an unsupported algorithm is used.
+
+             --renew_access_token_on_expiry = true
+             -- whether this plugin shall try to silently renew the access token once it is expired if a refresh token is available.
+             -- if it fails to renew the token, the user will be redirected to the authorization endpoint.
+             --access_token_expires_in = 3600
+             -- Default lifetime in seconds of the access_token if no expires_in attribute is present in the token endpoint response. 
+
+             --access_token_expires_leeway = 0
+             --  Expiration leeway for access_token renewal. If this is set, renewal will happen access_token_expires_leeway seconds before the token expiration. This avoids errors in case the access_token just expires when arriving to the OAuth Resource Server.
+
+             force_reauthorize = false,
+             -- When force_reauthorize is set to true the authorization flow will be executed even if a token has been cached already
+             --session_contents = {id_token=true}
+             -- Whitelist of session content to enable. This can be used to reduce the session size.
+             -- When not set everything will be included in the session.
+             -- Available are: 
+             -- id_token, enc_id_token, user, access_token (includes refresh token)
+
+             -- You can specify timeouts for connect/send/read as a single number (setting all timeouts) or as a table. Values are in milliseconds
+             -- timeout = 1000
+             -- timeout = { connect = 500, send = 1000, read = 1000 }
+
+             --use_nonce = false
+             -- By default the authorization request includes the
+             -- nonce paramter. You can use this option to disable it
+             -- which may be necessary when talking to a broken OpenID
+             -- Connect provider that ignores the paramter as the
+             -- id_token will be rejected otherwise.
+
+             --revoke_tokens_on_logout = false
+             -- When revoke_tokens_on_logout is set to true a logout notifies the authorization server that previously obtained refresh and access tokens are no longer needed. This requires that revocation_endpoint is discoverable.
+             -- If there is no revocation endpoint supplied or if there are errors on revocation the user will not be notified and the logout process continues normally.
+
+             -- Optional : use outgoing proxy to the OpenID Connect provider endpoints with the proxy_opts table : 
+             -- this requires lua-resty-http >= 0.12
+             -- proxy_opts = {
+             --    http_proxy  = "http://<proxy_host>:<proxy_port>/",
+             --    https_proxy = "http://<proxy_host>:<proxy_port>/"
+             -- }
+
+             -- Lifecycle Hooks
+             -- 
+             -- lifecycle = {
+             --    on_created = handle_created,
+             --    on_authenticated = handle_authenticated,
+             --    on_logout = handle_logout
+             -- }
+             -- 
+             -- where `handle_created`, `handle_authenticated` and `handle_logout` are callables
+             -- accepting a single argument `session`
+             --
+             --  -- `on_created` hook is invoked *after* a session has been created in 
+             --     `openidc_authorize` immediately prior to saving the session
+             --  -- `on_authenticated` hook is invoked *after* receiving authorization response in
+             --     `openidc_authorization_response` immediately prior to saving the session
+             --  -- `on_logout` hook is invoked *before* a session is destroyed in
+             --     `openidc_logout`
+             --
+             --  Any, all or none of the hooks may be used. Empty `lifecycle` does nothing.
+             
+             -- Optional : add decorator for HTTP request that is
+             -- applied when lua-resty-openidc talks to the OpenID Connect
+             -- provider directly. Can be used to provide extra HTTP headers
+             -- or add other similar behavior.
+             -- http_request_decorator = function(req)
+             --   local h = req.headers or {}
+             --   h[EXTRA_HEADER] = 'my extra header'
+             --   req.headers = h
+             --   return req
+             -- end,
+
+          }
+
+          -- call authenticate for OpenID Connect user authentication
+          local res, err = require("resty.openidc").authenticate(opts)
+
+          if err then
+            ngx.status = 500
+            ngx.say(err)
+            ngx.exit(ngx.HTTP_INTERNAL_SERVER_ERROR)
+          end
+
+          -- at this point res is a Lua table with 3 keys:
+          --   id_token    : a Lua table with the claims from the id_token (required)
+          --   access_token: the access token (optional)
+          --   user        : a Lua table with the claims returned from the user info endpoint (optional)
+
+          --if res.id_token.sub ~= "fVf+R[...]cPsSx" then
+          --  ngx.exit(ngx.HTTP_FORBIDDEN)
+          --end
+
+			
+          -- if res.user.email and string.sub(res.user.email, -10) ~= "@blabla.com" then
+          --   ngx.exit(ngx.HTTP_FORBIDDEN)
+          -- end
+			
+          -- set headers with user info: this will overwrite any existing headers
+          -- but also scrub(!) them in case no value is provided in the token
+          ngx.req.set_header("X-USER", res.id_token.sub)
+      }
+
+      proxy_pass https://id4me.org;
+    }
+  }
+}
+```
 
 ## Sample Configuration for Google+ Signin
 
